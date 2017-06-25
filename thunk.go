@@ -1,4 +1,4 @@
-package muxer
+package grune
 
 import "C"
 import "unsafe"

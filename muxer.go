@@ -1,7 +1,7 @@
-package muxer
+package grune
 
 // #cgo CFLAGS: -I/usr/local/include
-// #cgo LDFLAGS: -L/usr/local/lib -lavformat -lavcodec -lavutil -lswscale -L. -lmuxer
+// #cgo LDFLAGS: -L/usr/local/lib -lavformat -lavcodec -lavutil -lswscale
 // #include "tsmux.h"
 // #include <stdio.h>
 // #include <stdlib.h>

@@ -5,7 +5,9 @@
 
 typedef struct _FrameWriter FrameWriter;
 
-FrameWriter* NewMp4FrameWriter(void* wopaque, BufferCallback writeFunction, char audio, char video);
+FrameWriter* NewMp4FrameWriter(void* wopaque, BufferCallback writeFunction);
+void Mp4FrameWriterAddAudioStream(FrameWriter* fw, const int samplerate, const int bitrate);
+void Mp4FrameWriterAddVideoStream(FrameWriter* fw, const int width, const int height, const int bitrate);
 void Mp4FrameWriterSetSpsPps(FrameWriter* fw, const uint8_t* spsBuf, int spsSize, const uint8_t* ppsBuf, int ppsSize);
 int Mp4FrameWriterWriteHeader(FrameWriter* fw);
 int Mp4FrameWriterWriteVclFrame(FrameWriter* fw, const uint8_t* buf, int size, int64_t pts, int64_t dts, int duration, int isKeyFrame);

@@ -11,65 +11,19 @@ typedef struct {
     AVStream *st;
 } OutputStream;
 
-/* Add an output stream. */
-static void addStream(OutputStream *ost, AVFormatContext *oc, enum AVCodecID codec_id)
-{
-    AVCodecContext *c;
-
-    ost->st = avformat_new_stream(oc, 0);
-    if (!ost->st) {
-        fprintf(stderr, "Could not allocate stream\n");
-        return;
-    }
-    
-    ost->st->id = oc->nb_streams-1;
-    c = ost->st->codec;
-    c->codec_id = codec_id;
-
-    switch (codec_id) {
-        case AV_CODEC_ID_H264:
-            c->codec_type = AVMEDIA_TYPE_VIDEO;
-            c->profile = FF_PROFILE_H264_HIGH;
-            c->pix_fmt = AV_PIX_FMT_YUV420P;
-            //c->framerate = (AVRational){ 1, 30 };
-            c->bit_rate = 5000000;
-            c->width    = 1280;
-            c->height   = 720;
-            c->time_base = (AVRational){ 1, 60 };
-            ost->st->time_base = (AVRational){ 1, 19200 };
-            break;
-        case AV_CODEC_ID_AAC:
-            c->codec_type = AVMEDIA_TYPE_AUDIO;
-            c->time_base = (AVRational){ 1, 44100 };
-            c->sample_rate = 44100;
-            c->channels = 1;
-            c->bit_rate = 96000;
-            c->time_base = ost->st->time_base;
-            ost->st->time_base = (AVRational){ 1, 44100 };
-        default:
-            break;
-    }
-    
-    /* Some formats want stream headers to be separate. */
-    if (oc->oformat->flags & AVFMT_GLOBALHEADER)
-        ost->st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;
-}
-
 struct _FrameWriter {
     AVFormatContext *ofmt_ctx;
     OutputStream video_st;
     OutputStream audio_st;
-    //int64_t next_dts;
 };
 
-FrameWriter* NewMp4FrameWriter(void* wopaque, BufferCallback writeFunction, char audio, char video)
+FrameWriter* NewMp4FrameWriter(void* wopaque, BufferCallback writeFunction)
 {
     int ret;
     unsigned char *obuf;
     FrameWriter* fw;
 
     fw = malloc(sizeof(FrameWriter));
-    //fw->next_dts = -1280;
     
     // Open output.
     obuf = av_malloc(8192);
@@ -96,14 +50,6 @@ FrameWriter* NewMp4FrameWriter(void* wopaque, BufferCallback writeFunction, char
         goto end;
     }
 
-    if (video) {
-        addStream(&fw->video_st, fw->ofmt_ctx, AV_CODEC_ID_H264);
-    }
-    
-    if (audio) {
-        addStream(&fw->audio_st, fw->ofmt_ctx, AV_CODEC_ID_AAC);
-    }
-
     return fw;
 
 end:
@@ -111,13 +57,71 @@ end:
     return 0;
 }
 
+void Mp4FrameWriterAddAudioStream(FrameWriter* fw, const int samplerate, const int bitrate) {
+    AVCodecContext *c;
+    OutputStream *ost = &fw->audio_st;
+    AVFormatContext *oc = fw->ofmt_ctx;
+
+    ost->st = avformat_new_stream(oc, 0);
+    if (!ost->st) {
+        fprintf(stderr, "Could not allocate stream\n");
+        return;
+    }
+
+    ost->st->id = oc->nb_streams-1;
+    c = ost->st->codec;
+    c->codec_id = AV_CODEC_ID_AAC;
+
+    c->codec_type = AVMEDIA_TYPE_AUDIO;
+    c->time_base = (AVRational){ 1, 44100 };
+    c->sample_rate = samplerate;
+    c->channels = 1;
+    c->bit_rate = bitrate;
+    c->time_base = ost->st->time_base;
+    ost->st->time_base = (AVRational){ 1, 44100 };
+
+    /* Some formats want stream headers to be separate. */
+    if (oc->oformat->flags & AVFMT_GLOBALHEADER)
+        ost->st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;
+}
+
+void Mp4FrameWriterAddVideoStream(FrameWriter* fw, const int width, const int height, const int bitrate) {
+    AVCodecContext *c;
+    OutputStream *ost = &fw->video_st;
+    AVFormatContext *oc = fw->ofmt_ctx;
+
+    ost->st = avformat_new_stream(oc, 0);
+    if (!ost->st) {
+        fprintf(stderr, "Could not allocate stream\n");
+        return;
+    }
+
+    ost->st->id = oc->nb_streams-1;
+    c = ost->st->codec;
+    c->codec_id = AV_CODEC_ID_H264;
+
+    c->codec_type = AVMEDIA_TYPE_VIDEO;
+    c->profile = FF_PROFILE_H264_HIGH;
+    c->pix_fmt = AV_PIX_FMT_YUV420P;
+    //c->framerate = (AVRational){ 1, 30 };
+    c->bit_rate = bitrate;
+    c->width = width;
+    c->height = height;
+    c->time_base = (AVRational){ 1, 60 };
+    ost->st->time_base = (AVRational){ 1, 19200 };
+
+    /* Some formats want stream headers to be separate. */
+    if (oc->oformat->flags & AVFMT_GLOBALHEADER)
+        ost->st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;
+}
+
 void Mp4FrameWriterSetSpsPps(FrameWriter* fw, const uint8_t* spsBuf, int spsSize, const uint8_t* ppsBuf, int ppsSize) {
     AVCodecContext *c = fw->video_st.st->codec;
     int extradata_len = 8 + spsSize + 3 + ppsSize;
     int offset = 0;
-    
+
     c->extradata = (uint8_t*)av_mallocz(extradata_len);
-    
+
     c->extradata_size = extradata_len;
     c->extradata[0] = 0x01;
     c->extradata[1] = spsBuf[1];
@@ -128,14 +132,14 @@ void Mp4FrameWriterSetSpsPps(FrameWriter* fw, const uint8_t* spsBuf, int spsSize
     c->extradata[6] = (spsSize >> 8) & 0x00ff;
     c->extradata[7] = spsSize & 0x00ff;
     offset += 8;
-    
+
     memcpy(c->extradata+offset, spsBuf, spsSize);
     offset += spsSize;
-    
+
     c->extradata[offset++] = 0x01;
     c->extradata[offset++] = (ppsSize >> 8) & 0x00ff;
     c->extradata[offset++] = ppsSize & 0x00ff;
-    
+
     memcpy(c->extradata+offset, ppsBuf, ppsSize);
 }
 
